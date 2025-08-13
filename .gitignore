@@ -1,0 +1,17 @@
+# Environments
+.env
+.venv
+venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Credentials
+client_secret.json
+client_secret_*.json
+token.json
+service-account.json
