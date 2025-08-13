@@ -1,0 +1,7 @@
+[server]
+enableXsrfProtection = true
+cookieSecret = "change-this-cookie-secret"
+
+[theme]
+base="light"
+primaryColor="#2A7DE1"
