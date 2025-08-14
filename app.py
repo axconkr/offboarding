@@ -6,7 +6,6 @@ import datetime as dt
 from typing import List, Optional
 
 import streamlit as st
-from sqlalchemy.orm import Session
 
 from db import (
     init_db,
@@ -27,7 +26,7 @@ from gdrive import upload_bytes
 init_db()  # 테이블 없으면 생성 (기존 테이블 변경은 X → Alembic 권장)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-PUBLIC_APP_URL = os.getenv("PUBLIC_APP_URL", "http://localhost:8501")
+PUBLIC_APP_URL = os.getenv("PUBLIC_APP_URL", "http://1.236.245.110:8013")
 GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
 
 

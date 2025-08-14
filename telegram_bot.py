@@ -1,71 +1,84 @@
-import os, logging, re
+# telegram_bot.py - python-telegram-bot v20 compatible, ASCII-only
+from __future__ import annotations
+
+import logging
+import os
 from pathlib import Path
+from typing import Optional
+
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-from db import SessionLocal, User
-from sqlalchemy.orm import Session
-from dotenv import load_dotenv
-import pathlib
-BASE_DIR = pathlib.Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-logging.basicConfig(level=logging.INFO)
+from db import SessionLocal, User  # SQLAlchemy session/model
 
+# Logging
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(name)s | %(message)s",
+    level=logging.INFO,
+)
+log = logging.getLogger("offboarding.bot")
+
+# Load .env from script directory
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip().strip('"').strip("'")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not BOT_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN is not set in .env")
 
-def _token_error(token: str) -> str | None:
-    if not token:
-        return "환경변수 TELEGRAM_BOT_TOKEN 이 비어 있습니다."
-    if not re.match(r"^\d{8,10}:[A-Za-z0-9_-]{35,}$", token):
-        return "텔레그램 토큰 형식이 올바르지 않습니다. @BotFather 에서 새 토큰을 받아 .env에 넣어주세요."
-    return None
+def find_user_by_chat_id(chat_id: int) -> Optional[User]:
+    with SessionLocal() as db:
+        return db.query(User).filter(User.telegram_chat_id == str(chat_id)).first()
 
-err = _token_error(BOT_TOKEN)
-if err:
-    raise SystemExit(f"[Bot init error] {err}")
-
-HELP_TEXT = (
-    "안녕하세요! 오프보딩 알림 봇입니다.\n"
-    "/start - 시작 및 계정 연결 (예: /start hr@example.com)\n"
-    "/whoami - 내 계정 확인\n"
-)
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    args = context.args
+    args = context.args or []
     if not args:
-        await update.message.reply_text("이메일을 함께 입력해주세요. 예) /start hr@example.com")
+        await update.effective_message.reply_text(
+            "Hello! Link your account by sending:\n\n/start your_email@example.com"
+        )
         return
+
     email = args[0].strip().lower()
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            await update.effective_message.reply_text(
+                f"Email not found: {email}"
+            )
+            return
+        user.telegram_chat_id = str(chat_id)
+        db.commit()
 
-    db: Session = SessionLocal()
-    user = db.query(User).filter(User.email==email).first()
+    await update.effective_message.reply_text(
+        f"Linked successfully.\nemail={email}\nchat_id={chat_id}"
+    )
+    log.info("Linked %s -> chat_id=%s", email, chat_id)
+
+async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    user = find_user_by_chat_id(chat_id)
     if not user:
-        await update.message.reply_text("해당 이메일 사용자가 없습니다. 관리자에게 문의하세요.")
+        await update.effective_message.reply_text(
+            "Not linked yet. Use /start your_email@example.com"
+        )
         return
-    user.telegram_chat_id = str(chat_id)
-    db.add(user)
-    db.commit()
-    await update.message.reply_text("연결되었습니다! 이제 알림을 받을 수 있습니다.")
+    role = getattr(user.role, "value", str(user.role))
+    await update.effective_message.reply_text(
+        f"name={user.name}\nemail={user.email}\nrole={role}\nchat_id={chat_id}"
+    )
 
-async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    db: Session = SessionLocal()
-    user = db.query(User).filter(User.telegram_chat_id==chat_id).first()
-    if not user:
-        await update.message.reply_text("계정이 연결되지 않았습니다. /start 이메일 로 연결하세요.")
-        return
-    await update.message.reply_text(f"{user.name} / {user.email} / {user.role.value}")
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.effective_message.reply_text("pong")
 
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+def main() -> None:
+    app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("whoami", whoami))
-    app.run_polling()
+    app.add_handler(CommandHandler("ping", ping))
+    log.info("Starting bot...")
+    app.run_polling(close_loop=False)
 
 if __name__ == "__main__":
     main()
